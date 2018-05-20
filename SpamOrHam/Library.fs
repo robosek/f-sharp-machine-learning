@@ -1,9 +1,10 @@
-open System
-open Training
-
 [<EntryPoint>]
 let main argv = 
-    let predict = Training.trainAndPredictData "data/data.txt"
-    let result = predict.PredictedLabel
-    printfn "Predicted label for test sentence is: %s" result 
+    let model = Training.trainData "data/train_data.txt"
+    let metrics = Training.evaluateData model "data/evaluate_data.txt"
+    let customAccuracy = Training.customEvaluator model "data/evaluate_data.txt"
+    
+    printfn "Micro accuracy is : %f" metrics.AccuracyMicro
+    printfn "Macro accuracy is : %f" metrics.AccuracyMacro
+    printfn "Custom accuracy is : %f" customAccuracy
     0
