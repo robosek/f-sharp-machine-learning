@@ -1,18 +1,10 @@
-(* #r @"bin/Debug/net461/win-x64/Microsoft.ML.dll"
-#r @"bin/Debug/net461/win-x64/Microsoft.ML.Api.dll"
-#r @"bin/Debug/net461/win-x64/Microsoft.ML.Core.dll"
-#r @"bin/Debug/net461/win-x64/Microsoft.ML.Data.dll"
-#r @"bin/Debug/net461/win-x64/Microsoft.ML.CpuMath.dll"
-#r @"bin/Debug/net461/win-x64/netstandard.dll"
-#r @"bin/Debug/net461/win-x64/CpuMathNative.dll"
- *)
-
 module Training 
     open Microsoft.ML
     open Microsoft.ML.Runtime.Api;
-    open Microsoft.ML.Trainers;
-    open Microsoft.ML.Transforms;
-    open Microsoft.ML.Runtime.Data
+    open Microsoft.ML.Trainers
+    open Microsoft.ML.Transforms
+    open Microsoft.ML.Models
+    open System.IO
 
     type SpamOrHam() =
         [<Column(ordinal = "0", name="Label"); DefaultValue>]
@@ -24,25 +16,42 @@ module Training
         [<ColumnName "PredictedLabel"; DefaultValue>]
         val mutable PredictedLabel: string
 
-    let trainAndPredictData dataFileName = 
+    let trainData dataFileName = 
         let learningPipeline = new LearningPipeline()
         let textLoader = new TextLoader<SpamOrHam>(dataFileName, false, "tab")
         let dictionizer = new Dictionarizer("Label")
         let textFeaturizer = new TextFeaturizer("Features", "Content")
         let predictLabelConverter = new PredictedLabelColumnOriginalValueConverter()
         predictLabelConverter.PredictedLabelColumn <- "PredictedLabel"
-        let classifier = new FastTreeBinaryClassifier()
-        classifier.NumLeaves <- 5
-        classifier.NumTrees <- 5
-        classifier.MinDocumentsInLeafs <- 2
+        let classifier = new NaiveBayesClassifier()
 
-        learningPipeline.Add(textLoader) |> ignore
+        learningPipeline.Add textLoader
         learningPipeline.Add dictionizer
-        learningPipeline.Add(textFeaturizer) |> ignore
-        learningPipeline.Add(classifier) |> ignore
-        learningPipeline.Add(predictLabelConverter) |> ignore
+        learningPipeline.Add textFeaturizer
+        learningPipeline.Add classifier
+        learningPipeline.Add predictLabelConverter
 
-        let model = learningPipeline.Train<SpamOrHam, CategoryPrediction>()        
-        let test = new SpamOrHam()
-        test.Content <- "REMINDER FROM O2: To get 2.50 pounds free call credit and details of great offers pls reply 2 this text with your valid name, house no and postcode"
-        model.Predict(test)
+        learningPipeline.Train<SpamOrHam, CategoryPrediction>()
+    
+    let evaluateData model testDataPath =
+        let textLoader = new TextLoader<SpamOrHam>(testDataPath, false, "tab")
+        let evaluator = new ClassificationEvaluator()
+        evaluator.Evaluate(model, textLoader)
+    
+    let private mapToSpamOrHam(data: string[]) =
+        let spamOrHam = new SpamOrHam()
+        spamOrHam.Label <- data.[0]
+        spamOrHam.Content <- data.[1]
+        spamOrHam
+        
+    let customEvaluator (model: PredictionModel<SpamOrHam, CategoryPrediction>) testDataPath =
+         let testData = File.ReadAllLines testDataPath
+                           |> Seq.map ((fun sentence -> sentence.Split '\t') >> mapToSpamOrHam)
+         let predictions = model.Predict testData
+
+         testData
+         |> Seq.zip predictions
+         |> Seq.map(fun (prediction, spamOrHam) -> prediction.PredictedLabel = spamOrHam.Label)
+         |> Seq.filter(fun validPrediction -> validPrediction = true)
+         |> Seq.length
+         |> fun number -> (float32(number)/1000.0f)
