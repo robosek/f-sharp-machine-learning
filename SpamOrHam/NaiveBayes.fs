@@ -44,14 +44,24 @@ module Training
         spamOrHam.Content <- data.[1]
         spamOrHam
         
-    let customEvaluator (model: PredictionModel<SpamOrHam, CategoryPrediction>) testDataPath =
+    let private evaluateLabels (model: PredictionModel<SpamOrHam, CategoryPrediction>) testDataPath =
          let testData = File.ReadAllLines testDataPath
                            |> Seq.map ((fun sentence -> sentence.Split '\t') >> mapToSpamOrHam)
          let predictions = model.Predict testData
 
          testData
          |> Seq.zip predictions
-         |> Seq.map(fun (prediction, spamOrHam) -> prediction.PredictedLabel = spamOrHam.Label)
-         |> Seq.filter(fun validPrediction -> validPrediction = true)
-         |> Seq.length
-         |> fun number -> (float32(number)/1000.0f)
+         |> Seq.map(fun (prediction, spamOrHam) -> (spamOrHam.Label, prediction.PredictedLabel = spamOrHam.Label))
+    
+    let customEvaluator model testDataPath =
+        evaluateLabels model testDataPath
+        |> Seq.filter(fun (_,validPrediction) -> validPrediction = true)
+        |> Seq.length
+        |> fun number -> (float32(number)/1000.0f)
+
+    let getDisambiguation model testDataPath label=
+        evaluateLabels model testDataPath
+        |> Seq.filter(fun (predictionLabel, isValidPrediction) -> (predictionLabel = label && not isValidPrediction))
+        |> Seq.length
+        |> fun number -> (float32(number)/1000.0f)
+
